@@ -8,6 +8,7 @@ const path = require('path');
 var fs = require('fs');
 
 const mail = require(path.join(__dirname, 'mail.js'))
+const db = require(path.join(__dirname, 'db-handler.js'))
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -22,7 +23,8 @@ app.use(express.static(path.join(__dirname, 'public')));
 const dbPath = path.join(__dirname, 'db', 'prices.json');
 let price = 0;
 
-setInterval(getPrice, 5000); // Update for every 5 sec
+// setInterval(getPrice, 5000); // Update for every 5 sec
+setInterval(getPrice,1000*60*15);
 
 async function getPrice() {
     const url = 'https://www.flipkart.com/google-pixel-4a-just-black-128-gb/p/itm023b9677aa45d?pid=MOBFUSBNAZGY7HQU&lid=LSTMOBFUSBNAZGY7HQUWHTF0C&otracker=clp_banner_1_2.banner.BANNER_pixel-4a-coming-soon-yy34ff3-llo8i3-store_4WXKDU05CEH0';
@@ -46,31 +48,27 @@ function updatedData() {
     replace(/T/, ' '). // replace T with a space
     replace(/\..+/, '') // delete the dot and everything after
 
-    fs.readFile(dbPath, 'utf8', function readFileCallback(err, data) {
-        if (err) {
-            console.log(err);
-        } else {
-            obj = JSON.parse(data); //now it an object
-
-            obj.x.push(time);
-            obj.y.push(price);
-
-            json = JSON.stringify(obj); //convert it back to json
-            fs.writeFile(dbPath, json, 'utf8', () => {}); // write it back 
-        }
+    db.insertData("Pixel", {
+        time,
+        price
     });
 
+    // fs.readFile(dbPath, 'utf8', function readFileCallback(err, data) {
+    //     if (err) {
+    //         console.log(err);
+    //     } else {
+    //         obj = JSON.parse(data); //now it an object
+
+    //         obj.x.push(time);
+    //         obj.y.push(price);
+
+    //         json = JSON.stringify(obj); //convert it back to json
+    //         fs.writeFile(dbPath, json, 'utf8', () => {}); // write it back 
+    //     }
+    // });
+
 }
 
-function getDBData() {
-    fs.readFile(dbPath, 'utf8', function readFileCallback(err, data) {
-        if (err) {
-            console.log(err);
-        } else {
-            priceData = JSON.parse(data); //now it an object
-        }
-    })
-}
 
 
 // Executes when new client connect
@@ -78,29 +76,24 @@ io.on('connection', socket => {
     // console.log(socket.id);
 
     function sendData() {
-        fs.readFile(dbPath, 'utf8', function readFileCallback(err, data) {
-            if (err) {
-                console.log(err);
-            } else {
-                const priceData = JSON.parse(data); //now it an object
-                if (priceData.x.length > 0) {
-                    let sliceNo = priceData.x.length > 10 ? 10 : priceData.x.length;
-                    priceDatX = priceData.x.slice(priceData.x.length - sliceNo, priceData.x.length);
-                    priceDatY = priceData.y.slice(priceData.y.length - sliceNo, priceData.y.length);
 
-                    socket.emit('updateData', {
-                        x: priceDatX,
-                        y: priceDatY,
-                        type: 'scatter'
-                    });
-                }
-            }
+        db.retriveData("Pixel", 10).then((data)=>{
+            
+            console.log(data);
+            socket.emit('updateData', {
+                x: data.time,
+                y: data.price,
+                type: 'scatter'
+            });
+
         });
+
+
     }
     console.log("Blam");
     sendData();
     // setInterval(sendData,1000*60*15);  // Update for every 15 min
-    setInterval(sendData, 10000); // Update for every 10 sec
+    setInterval(sendData, 10000 * 6); // Update for every 10 sec
 
     socket.on('disconnect', () => {
         console.log("goo");

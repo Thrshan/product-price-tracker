@@ -15,6 +15,7 @@
     "express": "^4.17.1",
     "node-fetch": "^2.6.1",
     "nodemailer": "^6.6.1",
-    "socket.io": "^4.1.2"
+    "socket.io": "^4.1.2",
+    "sqlite3": "^5.0.2"
   }
 }
