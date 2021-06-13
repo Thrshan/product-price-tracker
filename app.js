@@ -1,11 +1,13 @@
+require('dotenv').config()
 const express = require('express');
 const fetch = require('node-fetch');
-const  DomParser = require('dom-parser');
+const DomParser = require('dom-parser');
 const socketio = require('socket.io');
 const http = require('http');
 const path = require('path');
 var fs = require('fs');
 
+const mail = require(path.join(__dirname, 'mail.js'))
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -16,95 +18,111 @@ const io = socketio(server);
 
 app.use(express.static(path.join(__dirname, 'public')));
 
-var priceData = {x:[], y:[]};
+// setInterval(getPrice,1000*60*15);  // Update for every 15 min
+const dbPath = path.join(__dirname, 'db', 'prices.json');
+let price = 0;
 
-let price = 29999;
-getPrice();
+setInterval(getPrice, 5000); // Update for every 5 sec
 
-async function getPrice(){
+async function getPrice() {
     const url = 'https://www.flipkart.com/google-pixel-4a-just-black-128-gb/p/itm023b9677aa45d?pid=MOBFUSBNAZGY7HQU&lid=LSTMOBFUSBNAZGY7HQUWHTF0C&otracker=clp_banner_1_2.banner.BANNER_pixel-4a-coming-soon-yy34ff3-llo8i3-store_4WXKDU05CEH0';
-    return await fetch(url)
-                .then(res => res.text())
-                .then(body => {
-                                var dom = parser.parseFromString(body)
-                                const priceElement = dom.getElementsByClassName('_16Jk6d');
-                                if( priceElement.length > 0){
-                                    let rawPrice = priceElement[0].innerHTML;
-                                    price = +rawPrice.replace(/[^0-9]/g, '');
-                                    // console.log(price);
-                                }       
-                            });
-    
+    await fetch(url).then(res => res.text())
+        .then(body => {
+            var dom = parser.parseFromString(body)
+            const priceElement = dom.getElementsByClassName('_16Jk6d');
+            if (priceElement.length > 0) {
+                let rawPrice = priceElement[0].innerHTML;
+                price = +rawPrice.replace(/[^0-9]/g, '');
+                console.log(price);
+            }
+            updatedData();
+        });
+
+
 }
 
 function updatedData() {
     let time = new Date().toISOString().
-        replace(/T/, ' ').      // replace T with a space
-        replace(/\..+/, '')     // delete the dot and everything after
+    replace(/T/, ' '). // replace T with a space
+    replace(/\..+/, '') // delete the dot and everything after
 
-    
-    const jsonPath = path.join(__dirname, 'db', 'prices.json');
-
-    // try {
-    // if (fs.existsSync(jsonPath)) {
-    //     console.log("File exists.")
-    // } else {
-    //     console.log("File does not exist.")
-    //     json = JSON.stringify(priceData); //convert it back to json
-    //     fs.writeFile(jsonPath, json, 'utf8', callback); // write it back 
-    // }
-    // } catch(err) {
-    // console.error(err)
-    // }
-
-    fs.readFile(jsonPath, 'utf8', function readFileCallback(err, data){
-        if (err){
+    fs.readFile(dbPath, 'utf8', function readFileCallback(err, data) {
+        if (err) {
             console.log(err);
         } else {
-        obj = JSON.parse(data); //now it an object
+            obj = JSON.parse(data); //now it an object
 
-        obj.x.push(time);
-        getPrice();
-        obj.y.push(price);
+            obj.x.push(time);
+            obj.y.push(price);
 
-        priceData = obj;
+            json = JSON.stringify(obj); //convert it back to json
+            fs.writeFile(dbPath, json, 'utf8', () => {}); // write it back 
+        }
+    });
 
-        json = JSON.stringify(obj); //convert it back to json
-        fs.writeFile(jsonPath, json, 'utf8', ()=>{}); // write it back 
-    }});
-        
-    }
-    
+}
+
+function getDBData() {
+    fs.readFile(dbPath, 'utf8', function readFileCallback(err, data) {
+        if (err) {
+            console.log(err);
+        } else {
+            priceData = JSON.parse(data); //now it an object
+        }
+    })
+}
+
+
 // Executes when new client connect
 io.on('connection', socket => {
     // console.log(socket.id);
-    function sendUpdatedData() {
-        updatedData();
 
-        socket.emit('updateData', {
-        x: priceData.x,
-        y: priceData.y,
-        type: 'scatter'
-      });
+    function sendData() {
+        fs.readFile(dbPath, 'utf8', function readFileCallback(err, data) {
+            if (err) {
+                console.log(err);
+            } else {
+                const priceData = JSON.parse(data); //now it an object
+                if (priceData.x.length > 0) {
+                    let sliceNo = priceData.x.length > 10 ? 10 : priceData.x.length;
+                    priceDatX = priceData.x.slice(priceData.x.length - sliceNo, priceData.x.length);
+                    priceDatY = priceData.y.slice(priceData.y.length - sliceNo, priceData.y.length);
+
+                    socket.emit('updateData', {
+                        x: priceDatX,
+                        y: priceDatY,
+                        type: 'scatter'
+                    });
+                }
+            }
+        });
     }
-    sendUpdatedData();
-    setInterval(sendUpdatedData,1000*60*15);  // Update for every 15 min
-    // setInterval(sendUpdatedData,5000);  // Update for every 5 sec
+    console.log("Blam");
+    sendData();
+    // setInterval(sendData,1000*60*15);  // Update for every 15 min
+    setInterval(sendData, 10000); // Update for every 10 sec
+
+    socket.on('disconnect', () => {
+        console.log("goo");
+    });
+
 });
 
 
-app.get('/', (req, res)=>{
+app.get('/', (req, res) => {
     res.sendFile('index.html');
 });
 
-app.get('/home', (req, res)=>{
+app.get('/home', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-
-
-
-server.listen(PORT, ()=>{
+server.listen(PORT, () => {
     console.log(`Server started at ${PORT}`);
 });
 
+// mail.sendEmail(
+//     to='thrshan.jeevaraj@gmail.com',
+//     subject='duh',
+//     body='bruh'
+// );
