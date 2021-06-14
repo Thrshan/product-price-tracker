@@ -18,29 +18,35 @@ const server = http.createServer(app);
 const io = socketio(server);
 
 app.use(express.static(path.join(__dirname, 'public')));
-
-// setInterval(getPrice,1000*60*15);  // Update for every 15 min
 const dbPath = path.join(__dirname, 'db', 'prices.json');
 let price = 0;
+let onlineFlag = false;
+let userCount = 0;
+let getDataInterval = 1000*60*15;
+let sendDataInterval = 1000*60*10; //getDataInterval is override by this if someone is online.
 
-// setInterval(getPrice, 5000); // Update for every 5 sec
-setInterval(getPrice,1000*60*15);
+setInterval(async () => {
+    if (!onlineFlag) {
+        await getPrice();
+    }
+}, getDataInterval); // Update for every 5 sec
 
-async function getPrice() {
-    const url = 'https://www.flipkart.com/google-pixel-4a-just-black-128-gb/p/itm023b9677aa45d?pid=MOBFUSBNAZGY7HQU&lid=LSTMOBFUSBNAZGY7HQUWHTF0C&otracker=clp_banner_1_2.banner.BANNER_pixel-4a-coming-soon-yy34ff3-llo8i3-store_4WXKDU05CEH0';
-    await fetch(url).then(res => res.text())
-        .then(body => {
-            var dom = parser.parseFromString(body)
-            const priceElement = dom.getElementsByClassName('_16Jk6d');
-            if (priceElement.length > 0) {
-                let rawPrice = priceElement[0].innerHTML;
-                price = +rawPrice.replace(/[^0-9]/g, '');
-                console.log(price);
-            }
-            updatedData();
-        });
-
-
+function getPrice() {
+    return new Promise((resolve) => {
+        const url = 'https://www.flipkart.com/google-pixel-4a-just-black-128-gb/p/itm023b9677aa45d?pid=MOBFUSBNAZGY7HQU&lid=LSTMOBFUSBNAZGY7HQUWHTF0C&otracker=clp_banner_1_2.banner.BANNER_pixel-4a-coming-soon-yy34ff3-llo8i3-store_4WXKDU05CEH0';
+        fetch(url).then(res => res.text())
+            .then(body => {
+                var dom = parser.parseFromString(body)
+                const priceElement = dom.getElementsByClassName('_16Jk6d');
+                if (priceElement.length > 0) {
+                    let rawPrice = priceElement[0].innerHTML;
+                    price = +rawPrice.replace(/[^0-9]/g, '');
+                    // console.log(price);
+                }
+                updatedData();
+                resolve(price);
+            });
+    });
 }
 
 function updatedData() {
@@ -52,21 +58,6 @@ function updatedData() {
         time,
         price
     });
-
-    // fs.readFile(dbPath, 'utf8', function readFileCallback(err, data) {
-    //     if (err) {
-    //         console.log(err);
-    //     } else {
-    //         obj = JSON.parse(data); //now it an object
-
-    //         obj.x.push(time);
-    //         obj.y.push(price);
-
-    //         json = JSON.stringify(obj); //convert it back to json
-    //         fs.writeFile(dbPath, json, 'utf8', () => {}); // write it back 
-    //     }
-    // });
-
 }
 
 
@@ -74,29 +65,33 @@ function updatedData() {
 // Executes when new client connect
 io.on('connection', socket => {
     // console.log(socket.id);
-
-    function sendData() {
-
-        db.retriveData("Pixel", 10).then((data)=>{
-            
-            console.log(data);
-            socket.emit('updateData', {
-                x: data.time,
-                y: data.price,
-                type: 'scatter'
-            });
-
+    userCount += 1;
+    onlineFlag = true;
+    async function sendData() {
+        await getPrice();
+        let data = await db.retriveData("Pixel", 10);
+        socket.emit('updateData', {
+            x: data.time,
+            y: data.price,
+            type: 'scatter'
         });
-
-
     }
+
     console.log("Blam");
     sendData();
-    // setInterval(sendData,1000*60*15);  // Update for every 15 min
-    setInterval(sendData, 10000 * 6); // Update for every 10 sec
+    setInterval(() => {
+        if (onlineFlag) {
+            sendData();
+        }
+    }, sendDataInterval);
 
     socket.on('disconnect', () => {
+        userCount -= 1;
+
         console.log("goo");
+        if (userCount === 0) {
+            onlineFlag = false;
+        }
     });
 
 });
